@@ -174,6 +174,8 @@ def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, 
 
     net_data = None
     nclasses = len(np.unique(y_train))
+    
+    # NOTE: Change loading of pretrained weights if not using *.npy
     if net_weights:
         net_data = np.load(net_weights, encoding="latin1").item()
 
@@ -240,19 +242,6 @@ def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, 
 
         saver.save(sess, "./retrained_alexnet")
         print("Model saved!!")
-
-def inference(image, class_names):
-    nclasses = len(np.unique(class_names))
-
-    features = tf.placeholder(tf.float32, shape=(None, None, None, 3))
-    fc7 = AlexNet(features)
-    with tf.variable_scope('final_resuls'):
-        weight8 = tf.Variable(tf.truncated_normal(shape=(fc7.get_shape().as_list()[-1], nclasses), mean=0, stddev=1e-2))
-        bias8 = tf.Variable(tf.zeros(shape=(nclasses)))
-        logits = tf.matmul(fc7, weight8)
-        logits = tf.add(logits, bias8)
-        print("final_resuls: Input %s Output %s" % (fc7.get_shape(), logits.get_shape()))
-
 
 if __name__ == "__main__":
 
