@@ -1,8 +1,11 @@
 """
 AlexNet with bare-metal TensorFlow Low Level API
 """
-import tensorflow as tf
+import os
+
 import numpy as np
+import tensorflow as tf
+
 
 def AlexNet(features, net_data=None, keep_prob=1.0, features_extract=False):
     mu = 0
@@ -170,12 +173,11 @@ def AlexNet(features, net_data=None, keep_prob=1.0, features_extract=False):
 
     return tf.nn.softmax(fc8)
 
-def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, batch_size=128):
+
+def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, batch_size=128, save_graph="alexnet.pb"):
 
     net_data = None
     nclasses = len(np.unique(y_train))
-    
-    # NOTE: Change loading of pretrained weights if not using *.npy
     if net_weights:
         net_data = np.load(net_weights, encoding="latin1").item()
 
@@ -186,12 +188,12 @@ def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, 
     fc7 = AlexNet(features, net_data=net_data, features_extract=True, keep_prob=0.5)
     if net_data:
         fc7 = tf.stop_gradient(fc7)
-    with tf.variable_scope('final_resuls'):
+    with tf.variable_scope('fc8'):
         weight8 = tf.Variable(tf.truncated_normal(shape=(fc7.get_shape().as_list()[-1], nclasses), mean=0, stddev=1e-2))
         bias8 = tf.Variable(tf.zeros(shape=(nclasses)))
         logits = tf.matmul(fc7, weight8)
         logits = tf.add(logits, bias8)
-        print("final_resuls: Input %s Output %s" % (fc7.get_shape(), logits.get_shape()))
+        print("fc8: Input %s Output %s" % (fc7.get_shape(), logits.get_shape()))
 
     from sklearn.model_selection import train_test_split
     from sklearn.utils import shuffle
@@ -206,7 +208,10 @@ def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, 
     preds = tf.argmax(logits, 1)
     accuracy_op = tf.reduce_mean(tf.cast(tf.equal(preds, labels), tf.float32))
 
-    saver = tf.train.Saver()
+    # saver = tf.train.Saver()
+    model_dir = os.path.join(os.path.curdir, os.path.dirname(save_graph))
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
 
     def evaluate(X_data, y_data):
         num_examples = len(X_data)
@@ -240,8 +245,50 @@ def retrain(X_train, y_train, net_weights=None, learning_rate=0.001, epochs=10, 
             print("Validation Accuracy = {:.3f} Loss = {:.3f}".format(validation_accuracy, validation_loss))
             print()
 
-        saver.save(sess, "./retrained_alexnet")
-        print("Model saved!!")
+        # saver.save(sess, os.path.join(model_dir, "alexnet.ckpt"))
+
+        output_graph_def = tf.graph_util.convert_variables_to_constants(sess, tf.get_default_graph().as_graph_def(), ["fc8/Add"])
+
+        with tf.gfile.GFile(os.path.join(model_dir, save_graph), "wb") as f:
+            f.write(output_graph_def.SerializeToString())
+
+def inference(fname, model, labels):
+    """
+    Args
+        fname (str) - image filepath (*.jpg)
+        model (str) - model filepath (*.pb)
+        labels(str) - labels filepath (*.txt)
+
+    Return
+        predicted_label (str) - prediction result
+    """
+    import cv2
+    graph = tf.Graph()
+    graph_def = tf.GraphDef()
+
+    with open(model, "rb") as f:
+        graph_def.ParseFromString(f.read())
+    with graph.as_default():
+        tf.import_graph_def(graph_def)
+
+    image = cv2.imread(fname)
+    assert image is not None, "Failed to open [%s]" % (fname)
+
+    image = image - np.mean(image)
+
+    input_tensor = graph.get_tensor_by_name("import/features:0")
+    output_tensor = graph.get_tensor_by_name("import/fc8/Add:0")
+
+    with tf.Session(graph=graph) as sess:
+        predictions = sess.run(output_tensor, feed_dict={input_tensor: np.expand_dims(image, 0)})
+    results = np.squeeze(predictions)
+
+    top_k = results.argsort()[-5:][::-1]
+    class_names = [l.strip() for l in tf.gfile.GFile(labels).readlines()]
+    for i in top_k:
+        print(class_names[i], results[i])
+
+    return results[top_k[0]]
 
 if __name__ == "__main__":
 
@@ -255,6 +302,10 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=2, help="number of training iterations")
     parser.add_argument("--batch_size", type=int, default=128, help="batch size for training")
     parser.add_argument("--net_weights", default=None, help="pretrained weights bvlc-alexnet.npy")
+    parser.add_argument("--train", action="store_true", help="train/retrain model")
+    parser.add_argument("--save_graph", default="alexnet.pb", help="saves graph as *.pb while training or loads *.pb for inference")
+    parser.add_argument("--labels", default="labels.txt", help="labels file")
+    parser.add_argument("--infer", default=None, help="perform inference for file")
     args = parser.parse_args()
 
     print(args)
@@ -265,4 +316,9 @@ if __name__ == "__main__":
     X_train, y_train = trainset['features'], trainset['labels']
     X_test, y_test = testset['features'], testset['labels']
 
-    retrain(X_train, y_train, net_weights=args.net_weights, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
+    if args.train:
+        retrain(X_train, y_train, net_weights=args.net_weights, epochs=args.epochs,
+                batch_size=args.batch_size, learning_rate=args.learning_rate, save_graph=args.save_graph)
+
+    if args.infer:
+        inference(args.infer, args.save_graph, args.labels)
