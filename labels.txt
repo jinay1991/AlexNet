@@ -1,5 +1,5 @@
-banana
-baseball bat
-dolphin
-lemon
-sea lion
+Banana
+Baseball bat
+Dolphin
+Lemon
+Sea lion

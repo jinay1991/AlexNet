@@ -44,7 +44,7 @@ def load_data(csv_file=None, save_pickle=True):
         print("Save datasets as form of pickle 'train.p' and 'test.p'")
         pickle.dump({'features': X_train, 'labels': y_train}, open("train.p", "wb"))
         pickle.dump({'features': X_test, 'labels': y_test}, open("test.p", "wb"))
-        np.savetxt("labels.txt", np.unique(train_labels))
+        np.savetxt("labels.txt", np.unique(train_labels), fmt='%s')
     else:
         print("Loading dataset information from pickle files...")
         train = pickle.load(open("train.p", "rb"))
